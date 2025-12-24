@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Rocket Performance Calculator</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    body { margin: 0; padding: 16px; background: #f6f7f9; }
+    .card { max-width: 720px; margin: 0 auto; background: white; border-radius: 16px; padding: 16px; box-shadow: 0 6px 20px rgba(0,0,0,.08); }
+    h1 { font-size: 20px; margin: 0 0 12px; }
+    .grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
+    @media (min-width: 640px) { .grid { grid-template-columns: 1fr 1fr; } }
+    label { display: block; font-size: 12px; color: #444; margin-bottom: 6px; }
+    input, select { width: 100%; padding: 10px 12px; border: 1px solid #d0d6dd; border-radius: 12px; font-size: 16px; }
+    .row { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+    .btns { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+    button { padding: 10px 14px; border-radius: 12px; border: 1px solid #c7cdd6; background: #fff; font-size: 15px; }
+    button.primary { background: #111827; color: #fff; border-color: #111827; }
+    .out { margin-top: 16px; padding: 12px; background: #f3f4f6; border-radius: 12px; }
+    .mono { font-variant-numeric: tabular-nums; }
+    .small { font-size: 12px; color: #555; }
+    .warn { color: #8a2a2a; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Rocket Performance Calculator</h1>
+    <div class="grid">
+      <div>
+        <label for="isp">Specific impulse (Isp)</label>
+        <div class="row">
+          <input id="isp" type="number" step="any" value="300" />
+          <select id="ispUnit">
+            <option value="s" selected>seconds (s)</option>
+          </select>
+        </div>
+        <div class="small">Typical: ~220–260 s (solid), ~280–360 s (liquid), ~1500–3500 s (electric).</div>
+      </div>
+
+      <div>
+        <label for="g0">Standard gravity (g₀)</label>
+        <div class="row">
+          <input id="g0" type="number" step="any" value="9.80665" />
+          <select id="gUnit">
+            <option value="mps2" selected>m/s²</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label for="m0">Initial mass (m₀)</label>
+        <div class="row">
+          <input id="m0" type="number" step="any" value="500" />
+          <select id="mUnit">
+            <option value="kg" selected>kg</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label for="mf">Final mass / dry mass (m_f)</label>
+        <div class="row">
+          <input id="mf" type="number" step="any" value="200" />
+          <select id="mfUnit">
+            <option value="kg" selected>kg</option>
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label for="mdot">Mass flow rate (ṁ)</label>
+        <div class="row">
+          <input id="mdot" type="number" step="any" value="2.5" />
+          <select id="mdotUnit">
+            <option value="kgps" selected>kg/s</option>
+          </select>
+        </div>
+        <div class="small">If you don’t know this yet, leave it blank to skip thrust/burn time.</div>
+      </div>
+
+      <div>
+        <label for="notes">Notes (optional)</label>
+        <input id="notes" type="text" placeholder="e.g., vacuum engine, sea-level test, stage 2…" />
+      </div>
+    </div>
+
+    <div class="btns">
+      <button class="primary" id="calcBtn">Calculate</button>
+      <button id="resetBtn">Reset</button>
+      <button id="shareBtn">Copy share link</button>
+    </div>
+
+    <div class="out" id="output">
+      <div class="small">Enter values and tap <b>Calculate</b>.</div>
+    </div>
+  </div>
+
+<script>
+(function () {
+  const $ = (id) => document.getElementById(id);
+
+  const fmt = (x, digits = 3) => {
+    if (!Number.isFinite(x)) return "—";
+    // Use fixed for small/medium numbers, exponential for huge/small.
+    const ax = Math.abs(x);
+    if (ax !== 0 && (ax >= 1e6 || ax < 1e-3)) return x.toExponential(digits);
+    return x.toLocaleString(undefined, { maximumFractionDigits: digits });
+  };
+
+  const g0Default = 9.80665;
+
+  function readNumber(id) {
+    const v = $(id).value.trim();
+    if (v === "") return NaN;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : NaN;
+  }
+
+  function setFromQuery() {
+    const p = new URLSearchParams(location.search);
+    const fields = ["isp","g0","m0","mf","mdot","notes"];
+    for (const f of fields) {
+      if (p.has(f)) $(f).value = p.get(f);
+    }
+  }
+
+  function makeShareLink() {
+    const p = new URLSearchParams();
+    ["isp","g0","m0","mf","mdot","notes"].forEach(f => {
+      const v = $(f).value.trim();
+      if (v !== "") p.set(f, v);
+    });
+    const url = `${location.origin}${location.pathname}?${p.toString()}`;
+    return url;
+  }
+
+  function calculate() {
+    const isp = readNumber("isp");      // s
+    const g0  = readNumber("g0");       // m/s^2
+    const m0  = readNumber("m0");       // kg
+    const mf  = readNumber("mf");       // kg
+    const mdot = readNumber("mdot");    // kg/s (optional)
+
+    const notes = $("notes").value.trim();
+
+    const problems = [];
+    if (!(isp > 0)) problems.push("Isp must be > 0.");
+    if (!(g0 > 0)) problems.push("g₀ must be > 0.");
+    if (!(m0 > 0)) problems.push("m₀ must be > 0.");
+    if (!(mf > 0)) problems.push("m_f must be > 0.");
+    if (m0 <= mf) problems.push("m₀ must be greater than m_f (you need propellant mass).");
+    if (!Number.isNaN(mdot) && !(mdot > 0)) problems.push("ṁ must be > 0 if provided.");
+
+    const c = isp * g0; // effective exhaust velocity (m/s)
+    const massRatio = m0 / mf;
+    const dv = c * Math.log(massRatio); // m/s
+    const mp = m0 - mf;
+
+    let thrust = NaN;
+    let burnTime = NaN;
+    if (!Number.isNaN(mdot) && mdot > 0) {
+      thrust = mdot * c;      // N (ideal)
+      burnTime = mp / mdot;   // s
+    }
+
+    const out = [];
+    if (problems.length) {
+      out.push(`<div class="warn"><b>Please fix:</b><ul>${problems.map(x => `<li>${x}</li>`).join("")}</ul></div>`);
+    }
+
+    out.push(`<div class="mono"><b>c</b> (effective exhaust velocity): ${fmt(c)} m/s</div>`);
+    out.push(`<div class="mono"><b>m₀/m_f</b> (mass ratio): ${fmt(massRatio, 4)}</div>`);
+    out.push(`<div class="mono"><b>Δv</b> (ideal, no gravity/drag losses): ${fmt(dv)} m/s</div>`);
+    out.push(`<div class="mono"><b>m_p</b> (propellant mass): ${fmt(mp)} kg</div>`);
+
+    if (Number.isFinite(thrust)) {
+      out.push(`<div class="mono"><b>T</b> (ideal thrust): ${fmt(thrust)} N</div>`);
+      out.push(`<div class="mono"><b>t</b> (burn time): ${fmt(burnTime)} s</div>`);
+    } else {
+      out.push(`<div class="small">Provide ṁ to compute thrust and burn time.</div>`);
+    }
+
+    out.push(`<div class="small">Assumes constant Isp, g₀, and (if used) constant ṁ. Δv is vacuum-ideal (no drag, no gravity losses).</div>`);
+    if (notes) out.push(`<div class="small"><b>Notes:</b> ${notes.replaceAll("<","&lt;").replaceAll(">","&gt;")}</div>`);
+
+    $("output").innerHTML = out.join("");
+  }
+
+  $("calcBtn").addEventListener("click", calculate);
+
+  $("resetBtn").addEventListener("click", () => {
+    $("isp").value = 300;
+    $("g0").value = g0Default;
+    $("m0").value = 500;
+    $("mf").value = 200;
+    $("mdot").value = 2.5;
+    $("notes").value = "";
+    history.replaceState({}, "", location.pathname);
+    $("output").innerHTML = `<div class="small">Enter values and tap <b>Calculate</b>.</div>`;
+  });
+
+  $("shareBtn").addEventListener("click", async () => {
+    const url = makeShareLink();
+    try {
+      await navigator.clipboard.writeText(url);
+      $("output").innerHTML = `<div class="small">Copied share link:</div><div class="mono">${url}</div>` + $("output").innerHTML;
+    } catch {
+      // Fallback: prompt
+      window.prompt("Copy this link:", url);
+    }
+  });
+
+  setFromQuery();
+  // auto-calc if query has values
+  if (location.search.length > 1) calculate();
+})();
+</script>
+</body>
+</html>
