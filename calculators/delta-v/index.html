@@ -7,76 +7,97 @@
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     body { margin: 0; padding: 16px; background: #f6f7f9; }
-    .card { max-width: 720px; margin: 0 auto; background: white; border-radius: 16px; padding: 16px; box-shadow: 0 6px 20px rgba(0,0,0,.08); }
+    .card { max-width: 820px; margin: 0 auto; background: white; border-radius: 16px; padding: 16px; box-shadow: 0 6px 20px rgba(0,0,0,.08); }
     h1 { font-size: 20px; margin: 0 0 12px; }
     .grid { display: grid; gap: 12px; grid-template-columns: 1fr; }
-    @media (min-width: 640px) { .grid { grid-template-columns: 1fr 1fr; } }
+    @media (min-width: 720px) { .grid { grid-template-columns: 1fr 1fr; } }
     label { display: block; font-size: 12px; color: #444; margin-bottom: 6px; }
     input, select { width: 100%; padding: 10px 12px; border: 1px solid #d0d6dd; border-radius: 12px; font-size: 16px; }
-    .row { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+    .row2 { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
     .btns { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
-    button { padding: 10px 14px; border-radius: 12px; border: 1px solid #c7cdd6; background: #fff; font-size: 15px; }
+    button { padding: 10px 14px; border-radius: 12px; border: 1px solid #c7cdd6; background: #fff; font-size: 15px; cursor: pointer; }
     button.primary { background: #111827; color: #fff; border-color: #111827; }
     .out { margin-top: 16px; padding: 12px; background: #f3f4f6; border-radius: 12px; }
     .mono { font-variant-numeric: tabular-nums; }
-    .small { font-size: 12px; color: #555; }
+    .small { font-size: 12px; color: #555; line-height: 1.35; }
     .warn { color: #8a2a2a; }
+    .table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    .table th, .table td { text-align: left; padding: 8px 6px; border-bottom: 1px solid rgba(0,0,0,.08); vertical-align: top; }
+    .table th { font-size: 12px; color: #444; }
+    .pill { display:inline-block; padding: 2px 8px; border-radius: 999px; background:#e5e7eb; font-size: 12px; }
+    a { color:#0b57d0; text-decoration:none; }
+    a:hover { text-decoration:underline; }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Rocket Performance Calculator</h1>
+
     <div class="grid">
       <div>
         <label for="isp">Specific impulse (Isp)</label>
-        <div class="row">
+        <div class="row2">
           <input id="isp" type="number" step="any" value="300" />
           <select id="ispUnit">
             <option value="s" selected>seconds (s)</option>
           </select>
         </div>
-        <div class="small">Typical: ~220–260 s (solid), ~280–360 s (liquid), ~1500–3500 s (electric).</div>
+        <div class="small">Isp is in seconds in both SI/English usage.</div>
       </div>
 
+      <!-- UPDATED g0 block: presets + unit selector + value -->
       <div>
-        <label for="g0">Standard gravity (g₀)</label>
-        <div class="row">
-          <input id="g0" type="number" step="any" value="9.80665" />
+        <label for="g0Preset">Standard gravity (g₀)</label>
+        <div class="row2">
+          <select id="g0Preset">
+            <option value="earth_si" selected>Earth standard (9.80665 m/s²)</option>
+            <option value="earth_eng">Earth standard (32.174 ft/s²)</option>
+            <option value="custom">Custom</option>
+          </select>
           <select id="gUnit">
             <option value="mps2" selected>m/s²</option>
+            <option value="ftps2">ft/s²</option>
           </select>
+        </div>
+        <div style="height:10px"></div>
+        <input id="g0" type="number" step="any" value="9.80665" />
+        <div class="small">
+          Used for c = Isp·g₀. Earth standard g₀ values from Appendix 1. :contentReference[oaicite:0]{index=0}
         </div>
       </div>
 
       <div>
         <label for="m0">Initial mass (m₀)</label>
-        <div class="row">
+        <div class="row2">
           <input id="m0" type="number" step="any" value="500" />
-          <select id="mUnit">
+          <select id="m0Unit">
             <option value="kg" selected>kg</option>
+            <option value="lbm">lbm</option>
           </select>
         </div>
       </div>
 
       <div>
         <label for="mf">Final mass / dry mass (m_f)</label>
-        <div class="row">
+        <div class="row2">
           <input id="mf" type="number" step="any" value="200" />
           <select id="mfUnit">
             <option value="kg" selected>kg</option>
+            <option value="lbm">lbm</option>
           </select>
         </div>
       </div>
 
       <div>
         <label for="mdot">Mass flow rate (ṁ)</label>
-        <div class="row">
+        <div class="row2">
           <input id="mdot" type="number" step="any" value="2.5" />
           <select id="mdotUnit">
             <option value="kgps" selected>kg/s</option>
+            <option value="lbmps">lbm/s</option>
           </select>
         </div>
-        <div class="small">If you don’t know this yet, leave it blank to skip thrust/burn time.</div>
+        <div class="small">Leave blank to skip thrust/burn time.</div>
       </div>
 
       <div>
@@ -100,15 +121,21 @@
 (function () {
   const $ = (id) => document.getElementById(id);
 
-  const fmt = (x, digits = 3) => {
+  // Constants
+  const LBM_TO_KG = 0.45359237;
+  const FT_TO_M = 0.3048;
+  const N_TO_LBF = 1 / 4.4482216152605;
+
+  // Earth standard gravity constants (Appendix 1): :contentReference[oaicite:1]{index=1}
+  const G0_EARTH_SI = 9.80665;   // m/s^2
+  const G0_EARTH_ENG = 32.174;   // ft/s^2
+
+  const fmt = (x, digits = 4) => {
     if (!Number.isFinite(x)) return "—";
-    // Use fixed for small/medium numbers, exponential for huge/small.
     const ax = Math.abs(x);
-    if (ax !== 0 && (ax >= 1e6 || ax < 1e-3)) return x.toExponential(digits);
+    if (ax !== 0 && (ax >= 1e6 || ax < 1e-3)) return x.toExponential(6);
     return x.toLocaleString(undefined, { maximumFractionDigits: digits });
   };
-
-  const g0Default = 9.80665;
 
   function readNumber(id) {
     const v = $(id).value.trim();
@@ -117,9 +144,24 @@
     return Number.isFinite(n) ? n : NaN;
   }
 
+  function toSI_mass(value, unit) {
+    if (!Number.isFinite(value)) return NaN;
+    return unit === "lbm" ? value * LBM_TO_KG : value;
+  }
+
+  function toSI_mdot(value, unit) {
+    if (!Number.isFinite(value)) return NaN;
+    return unit === "lbmps" ? value * LBM_TO_KG : value;
+  }
+
+  function toSI_g0(value, unit) {
+    if (!Number.isFinite(value)) return NaN;
+    return unit === "ftps2" ? value * FT_TO_M : value; // ft/s^2 -> m/s^2
+  }
+
   function setFromQuery() {
     const p = new URLSearchParams(location.search);
-    const fields = ["isp","g0","m0","mf","mdot","notes"];
+    const fields = ["isp","g0","m0","mf","mdot","notes","gUnit","m0Unit","mfUnit","mdotUnit","g0Preset"];
     for (const f of fields) {
       if (p.has(f)) $(f).value = p.get(f);
     }
@@ -127,61 +169,158 @@
 
   function makeShareLink() {
     const p = new URLSearchParams();
-    ["isp","g0","m0","mf","mdot","notes"].forEach(f => {
+    ["isp","g0Preset","gUnit","g0","m0Unit","m0","mfUnit","mf","mdotUnit","mdot","notes"].forEach(f => {
       const v = $(f).value.trim();
       if (v !== "") p.set(f, v);
     });
-    const url = `${location.origin}${location.pathname}?${p.toString()}`;
-    return url;
+    return `${location.origin}${location.pathname}?${p.toString()}`;
   }
 
+  // NEW: g0 preset behavior
+  function syncG0PresetToValue() {
+    const preset = $("g0Preset").value;
+
+    if (preset === "earth_si") {
+      $("gUnit").value = "mps2";
+      $("g0").value = G0_EARTH_SI;
+      $("g0").disabled = true;
+      $("gUnit").disabled = true;
+      return;
+    }
+
+    if (preset === "earth_eng") {
+      $("gUnit").value = "ftps2";
+      $("g0").value = G0_EARTH_ENG;
+      $("g0").disabled = true;
+      $("gUnit").disabled = true;
+      return;
+    }
+
+    // custom
+    $("g0").disabled = false;
+    $("gUnit").disabled = false;
+  }
+
+  $("g0Preset").addEventListener("change", () => {
+    syncG0PresetToValue();
+  });
+
   function calculate() {
-    const isp = readNumber("isp");      // s
-    const g0  = readNumber("g0");       // m/s^2
-    const m0  = readNumber("m0");       // kg
-    const mf  = readNumber("mf");       // kg
-    const mdot = readNumber("mdot");    // kg/s (optional)
+    const isp = readNumber("isp"); // s
+
+    const g0_in = readNumber("g0");
+    const gUnit = $("gUnit").value;
+
+    const m0_in = readNumber("m0");
+    const mf_in = readNumber("mf");
+    const m0Unit = $("m0Unit").value;
+    const mfUnit = $("mfUnit").value;
+
+    const mdot_in = readNumber("mdot");
+    const mdotUnit = $("mdotUnit").value;
 
     const notes = $("notes").value.trim();
 
     const problems = [];
     if (!(isp > 0)) problems.push("Isp must be > 0.");
-    if (!(g0 > 0)) problems.push("g₀ must be > 0.");
-    if (!(m0 > 0)) problems.push("m₀ must be > 0.");
-    if (!(mf > 0)) problems.push("m_f must be > 0.");
-    if (m0 <= mf) problems.push("m₀ must be greater than m_f (you need propellant mass).");
-    if (!Number.isNaN(mdot) && !(mdot > 0)) problems.push("ṁ must be > 0 if provided.");
+    if (!(g0_in > 0)) problems.push("g₀ must be > 0.");
+    if (!(m0_in > 0)) problems.push("m₀ must be > 0.");
+    if (!(mf_in > 0)) problems.push("m_f must be > 0.");
 
-    const c = isp * g0; // effective exhaust velocity (m/s)
-    const massRatio = m0 / mf;
-    const dv = c * Math.log(massRatio); // m/s
-    const mp = m0 - mf;
+    const g0 = toSI_g0(g0_in, gUnit);
+    const m0 = toSI_mass(m0_in, m0Unit);
+    const mf = toSI_mass(mf_in, mfUnit);
 
-    let thrust = NaN;
-    let burnTime = NaN;
-    if (!Number.isNaN(mdot) && mdot > 0) {
-      thrust = mdot * c;      // N (ideal)
-      burnTime = mp / mdot;   // s
+    if (!(g0 > 0)) problems.push("g₀ conversion failed.");
+    if (!(m0 > 0) || !(mf > 0)) problems.push("Mass conversion failed.");
+    if (Number.isFinite(m0) && Number.isFinite(mf) && m0 <= mf) problems.push("m₀ must be greater than m_f (you need propellant mass).");
+
+    let mdot = NaN;
+    if (!Number.isNaN(mdot_in)) {
+      if (!(mdot_in > 0)) problems.push("ṁ must be > 0 if provided.");
+      mdot = toSI_mdot(mdot_in, mdotUnit);
+      if (!Number.isFinite(mdot) || mdot <= 0) problems.push("ṁ conversion failed (or is non-positive).");
     }
+
+    // Core computations (SI)
+    const c = isp * g0;                    // m/s
+    const massRatio = m0 / mf;
+    const dv = c * Math.log(massRatio);    // m/s
+    const mp = m0 - mf;                    // kg
+
+    let thrustN = NaN;
+    let burnTime = NaN;
+    if (Number.isFinite(mdot) && mdot > 0) {
+      thrustN = mdot * c;      // N (ideal)
+      burnTime = mp / mdot;    // s
+    }
+
+    // English outputs derived from SI
+    const c_ftps = c / FT_TO_M;
+    const dv_ftps = dv / FT_TO_M;
+    const mp_lbm = mp / LBM_TO_KG;
+    const thrustLbf = thrustN * N_TO_LBF;
 
     const out = [];
     if (problems.length) {
       out.push(`<div class="warn"><b>Please fix:</b><ul>${problems.map(x => `<li>${x}</li>`).join("")}</ul></div>`);
     }
 
-    out.push(`<div class="mono"><b>c</b> (effective exhaust velocity): ${fmt(c)} m/s</div>`);
-    out.push(`<div class="mono"><b>m₀/m_f</b> (mass ratio): ${fmt(massRatio, 4)}</div>`);
-    out.push(`<div class="mono"><b>Δv</b> (ideal, no gravity/drag losses): ${fmt(dv)} m/s</div>`);
-    out.push(`<div class="mono"><b>m_p</b> (propellant mass): ${fmt(mp)} kg</div>`);
+    out.push(`<div class="small"><span class="pill">Outputs shown in SI + English</span></div>`);
 
-    if (Number.isFinite(thrust)) {
-      out.push(`<div class="mono"><b>T</b> (ideal thrust): ${fmt(thrust)} N</div>`);
-      out.push(`<div class="mono"><b>t</b> (burn time): ${fmt(burnTime)} s</div>`);
-    } else {
+    out.push(`
+      <table class="table mono">
+        <thead>
+          <tr>
+            <th>Metric</th>
+            <th>SI</th>
+            <th>English</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><b>c</b> (effective exhaust velocity)</td>
+            <td>${fmt(c)} m/s</td>
+            <td>${fmt(c_ftps)} ft/s</td>
+          </tr>
+          <tr>
+            <td><b>m₀/m_f</b> (mass ratio)</td>
+            <td colspan="2">${fmt(massRatio, 6)} (unitless)</td>
+          </tr>
+          <tr>
+            <td><b>Δv</b> (ideal)</td>
+            <td>${fmt(dv)} m/s</td>
+            <td>${fmt(dv_ftps)} ft/s</td>
+          </tr>
+          <tr>
+            <td><b>m_p</b> (propellant mass)</td>
+            <td>${fmt(mp)} kg</td>
+            <td>${fmt(mp_lbm)} lbm</td>
+          </tr>
+          <tr>
+            <td><b>T</b> (ideal thrust)</td>
+            <td>${Number.isFinite(thrustN) ? `${fmt(thrustN)} N` : "—"}</td>
+            <td>${Number.isFinite(thrustLbf) ? `${fmt(thrustLbf)} lbf` : "—"}</td>
+          </tr>
+          <tr>
+            <td><b>t</b> (burn time)</td>
+            <td colspan="2">${Number.isFinite(burnTime) ? `${fmt(burnTime)} s` : "—"}</td>
+          </tr>
+        </tbody>
+      </table>
+    `);
+
+    out.push(`
+      <div class="small">
+        Earth standard g₀: 9.80665 m/s² = 32.174 ft/s². :contentReference[oaicite:2]{index=2}
+      </div>
+    `);
+
+    if (!Number.isFinite(thrustN)) {
       out.push(`<div class="small">Provide ṁ to compute thrust and burn time.</div>`);
     }
 
-    out.push(`<div class="small">Assumes constant Isp, g₀, and (if used) constant ṁ. Δv is vacuum-ideal (no drag, no gravity losses).</div>`);
+    out.push(`<div class="small">Assumes constant Isp, constant ṁ (if provided), and ideal vacuum Δv (no drag, no gravity losses).</div>`);
     if (notes) out.push(`<div class="small"><b>Notes:</b> ${notes.replaceAll("<","&lt;").replaceAll(">","&gt;")}</div>`);
 
     $("output").innerHTML = out.join("");
@@ -191,12 +330,22 @@
 
   $("resetBtn").addEventListener("click", () => {
     $("isp").value = 300;
-    $("g0").value = g0Default;
+
+    $("g0Preset").value = "earth_si";
+    $("gUnit").value = "mps2";
+    $("g0").value = G0_EARTH_SI;
+
     $("m0").value = 500;
     $("mf").value = 200;
+    $("m0Unit").value = "kg";
+    $("mfUnit").value = "kg";
+
     $("mdot").value = 2.5;
+    $("mdotUnit").value = "kgps";
+
     $("notes").value = "";
     history.replaceState({}, "", location.pathname);
+    syncG0PresetToValue();
     $("output").innerHTML = `<div class="small">Enter values and tap <b>Calculate</b>.</div>`;
   });
 
@@ -206,13 +355,13 @@
       await navigator.clipboard.writeText(url);
       $("output").innerHTML = `<div class="small">Copied share link:</div><div class="mono">${url}</div>` + $("output").innerHTML;
     } catch {
-      // Fallback: prompt
       window.prompt("Copy this link:", url);
     }
   });
 
+  // init
   setFromQuery();
-  // auto-calc if query has values
+  syncG0PresetToValue();
   if (location.search.length > 1) calculate();
 })();
 </script>
