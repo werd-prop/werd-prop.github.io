@@ -51,7 +51,7 @@
         <div class="row2">
           <select id="g0Preset">
             <option value="earth_si" selected>9.80665</option>
-            <option value="earth_eng">32.174 ft/s²</option>
+            <option value="earth_eng">32.174</option>
             <option value="custom">Custom</option>
           </select>
           <select id="gUnit">
@@ -62,7 +62,7 @@
         <div style="height:10px"></div>
         <input id="g0" type="number" step="any" value="9.80665" />
         <div class="small">
-          Used for c = Isp·g₀. Earth standard g₀ values from Appendix 1. :contentReference[oaicite:0]{index=0}
+          Used for c = Isp·g₀. Earth standard g₀ values from Appendix 1.
         </div>
       </div>
 
@@ -231,6 +231,19 @@
     const m0 = toSI_mass(m0_in, m0Unit);
     const mf = toSI_mass(mf_in, mfUnit);
 
+    // --- Echo inputs in both unit systems ---
+    const g0_si = g0;                 // m/s^2
+    const g0_eng = g0 / FT_TO_M;      // ft/s^2
+
+    const m0_si = m0;                 // kg
+    const m0_eng = m0 / LBM_TO_KG;    // lbm
+
+    const mf_si = mf;                 // kg
+    const mf_eng = mf / LBM_TO_KG;    // lbm
+
+    const mdot_si = Number.isFinite(mdot) ? mdot : NaN;              // kg/s
+    const mdot_eng = Number.isFinite(mdot) ? mdot / LBM_TO_KG : NaN; // lbm/s
+    
     if (!(g0 > 0)) problems.push("g₀ conversion failed.");
     if (!(m0 > 0) || !(mf > 0)) problems.push("Mass conversion failed.");
     if (Number.isFinite(m0) && Number.isFinite(mf) && m0 <= mf) problems.push("m₀ must be greater than m_f (you need propellant mass).");
@@ -244,7 +257,8 @@
 
     // Core computations (SI)
     const c = isp * g0;                    // m/s
-    const massRatio = m0 / mf;
+    const MR = mf / m0; // MR = final mass / initial mass
+    const PMF = 1 - MR; // propellant mass fraction = (m0 - mf)/m0  
     const dv = c * Math.log(massRatio);    // m/s
     const mp = m0 - mf;                    // kg
 
@@ -262,6 +276,49 @@
     const thrustLbf = thrustN * N_TO_LBF;
 
     const out = [];
+
+    out.push(`
+  <div class="small"><span class="pill">Inputs (SI & English)</span></div>
+
+  <table class="table mono">
+    <thead>
+      <tr>
+        <th>Input</th>
+        <th>SI</th>
+        <th>English</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><b>Isp</b></td>
+        <td colspan="2">${fmt(isp, 4)} s</td>
+      </tr>
+      <tr>
+        <td><b>g₀</b></td>
+        <td>${fmt(g0_si)} m/s²</td>
+        <td>${fmt(g0_eng)} ft/s²</td>
+      </tr>
+      <tr>
+        <td><b>m₀</b></td>
+        <td>${fmt(m0_si)} kg</td>
+        <td>${fmt(m0_eng)} lbm</td>
+      </tr>
+      <tr>
+        <td><b>m_f</b></td>
+        <td>${fmt(mf_si)} kg</td>
+        <td>${fmt(mf_eng)} lbm</td>
+      </tr>
+      <tr>
+        <td><b>ṁ</b></td>
+        <td>${Number.isFinite(mdot_si) ? `${fmt(mdot_si)} kg/s` : "—"}</td>
+        <td>${Number.isFinite(mdot_eng) ? `${fmt(mdot_eng)} lbm/s` : "—"}</td>
+      </tr>
+    </tbody>
+  </table>
+`);
+
+
+    
     if (problems.length) {
       out.push(`<div class="warn"><b>Please fix:</b><ul>${problems.map(x => `<li>${x}</li>`).join("")}</ul></div>`);
     }
@@ -287,6 +344,10 @@
             <td><b>m₀/m_f</b> (mass ratio)</td>
             <td colspan="2">${fmt(massRatio, 6)} (unitless)</td>
           </tr>
+          <tr>
+            <td><b>PMF</b> (m<sub>p</sub> / m₀)</td>
+            <td colspan="2">${fmt(PMF, 6)} (unitless)</td>
+          </tr>         
           <tr>
             <td><b>Δv</b> (ideal)</td>
             <td>${fmt(dv)} m/s</td>
