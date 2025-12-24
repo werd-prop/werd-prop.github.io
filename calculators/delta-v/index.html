@@ -29,6 +29,7 @@
     a:hover { text-decoration:underline; }
   </style>
 </head>
+
 <body>
   <div class="card">
     <h1>Rocket Performance Calculator</h1>
@@ -45,7 +46,6 @@
         <div class="small">Isp is in seconds in both SI/English usage.</div>
       </div>
 
-      <!-- UPDATED g0 block: presets + unit selector + value -->
       <div>
         <label for="g0Preset">Earth Standard gravity (g₀)</label>
         <div class="row2">
@@ -61,9 +61,7 @@
         </div>
         <div style="height:10px"></div>
         <input id="g0" type="number" step="any" value="9.80665" />
-        <div class="small">
-          Used for c = Isp·g₀. Earth standard g₀ values from Appendix 1.
-        </div>
+        <div class="small">Used for c = Isp·g₀.</div>
       </div>
 
       <div>
@@ -118,17 +116,21 @@
   </div>
 
 <script>
-(function () {
+(() => {
+  // ---------------------------
+  // Helpers
+  // ---------------------------
   const $ = (id) => document.getElementById(id);
 
-  // Constants
-  const LBM_TO_KG = 0.45359237;
-  const FT_TO_M = 0.3048;
-  const N_TO_LBF = 1 / 4.4482216152605;
+  const num = (id) => {
+    const raw = $(id).value.trim();
+    if (raw === "") return NaN;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : NaN;
+  };
 
-  // Earth standard gravity constants (Appendix 1):
-  const G0_EARTH_SI = 9.80665;   // m/s^2
-  const G0_EARTH_ENG = 32.174;   // ft/s^2
+  const esc = (s) =>
+    String(s).replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 
   const fmt = (x, digits = 4) => {
     if (!Number.isFinite(x)) return "—";
@@ -137,47 +139,71 @@
     return x.toLocaleString(undefined, { maximumFractionDigits: digits });
   };
 
-  function readNumber(id) {
-    const v = $(id).value.trim();
-    if (v === "") return NaN;
-    const n = Number(v);
-    return Number.isFinite(n) ? n : NaN;
-  }
+  // Small HTML builders (keeps templates readable)
+  const pill = (text) => `<div class="small"><span class="pill">${text}</span></div>`;
 
-  function toSI_mass(value, unit) {
-    if (!Number.isFinite(value)) return NaN;
-    return unit === "lbm" ? value * LBM_TO_KG : value;
-  }
+  const table = (headCells, bodyRowsHtml) => `
+    <table class="table mono">
+      <thead>
+        <tr>${headCells.map(h => `<th>${h}</th>`).join("")}</tr>
+      </thead>
+      <tbody>
+        ${bodyRowsHtml}
+      </tbody>
+    </table>
+  `;
 
-  function toSI_mdot(value, unit) {
-    if (!Number.isFinite(value)) return NaN;
-    return unit === "lbmps" ? value * LBM_TO_KG : value;
-  }
+  const row = (cells) => `<tr>${cells.map(c => `<td>${c}</td>`).join("")}</tr>`;
 
-  function toSI_g0(value, unit) {
-    if (!Number.isFinite(value)) return NaN;
-    return unit === "ftps2" ? value * FT_TO_M : value; // ft/s^2 -> m/s^2
-  }
+  // ---------------------------
+  // Units / constants
+  // ---------------------------
+  const LBM_TO_KG = 0.45359237;
+  const FT_TO_M = 0.3048;
+  const N_TO_LBF = 1 / 4.4482216152605;
 
-  function setFromQuery() {
+  // Earth standard gravity
+  const G0_EARTH_SI = 9.80665; // m/s^2
+  const G0_EARTH_ENG = 32.174; // ft/s^2
+
+  const toSI = {
+    mass: (value, unit) => (unit === "lbm" ? value * LBM_TO_KG : value),
+    mdot: (value, unit) => (unit === "lbmps" ? value * LBM_TO_KG : value),
+    g0:   (value, unit) => (unit === "ftps2" ? value * FT_TO_M : value), // ft/s^2 -> m/s^2
+  };
+
+  // ---------------------------
+  // URL share/load
+  // ---------------------------
+  const QUERY_FIELDS = [
+    "isp",
+    "g0Preset", "gUnit", "g0",
+    "m0Unit", "m0",
+    "mfUnit", "mf",
+    "mdotUnit", "mdot",
+    "notes",
+  ];
+
+  function loadFromQuery() {
     const p = new URLSearchParams(location.search);
-    const fields = ["isp","g0","m0","mf","mdot","notes","gUnit","m0Unit","mfUnit","mdotUnit","g0Preset"];
-    for (const f of fields) {
-      if (p.has(f)) $(f).value = p.get(f);
+    for (const key of QUERY_FIELDS) {
+      if (p.has(key)) $(key).value = p.get(key);
     }
   }
 
   function makeShareLink() {
     const p = new URLSearchParams();
-    ["isp","g0Preset","gUnit","g0","m0Unit","m0","mfUnit","mf","mdotUnit","mdot","notes"].forEach(f => {
-      const v = $(f).value.trim();
-      if (v !== "") p.set(f, v);
-    });
+    for (const key of QUERY_FIELDS) {
+      const v = $(key).value.trim();
+      if (v !== "") p.set(key, v);
+    }
     return `${location.origin}${location.pathname}?${p.toString()}`;
   }
 
-  // NEW: g0 preset behavior
-  function syncG0PresetToValue() {
+  // ---------------------------
+  // g0 preset behavior
+  // ---------------------------
+  function applyG0Preset() {
     const preset = $("g0Preset").value;
 
     if (preset === "earth_si") {
@@ -201,192 +227,175 @@
     $("gUnit").disabled = false;
   }
 
-  $("g0Preset").addEventListener("change", () => {
-    syncG0PresetToValue();
-  });
+  $("g0Preset").addEventListener("change", applyG0Preset);
 
-  function calculate() {
-    const isp = readNumber("isp"); // s
-
-    const g0_in = readNumber("g0");
+  // ---------------------------
+  // Core calculation
+  // ---------------------------
+  function readInputs() {
+    const isp = num("isp");              // seconds
+    const g0_in = num("g0");
     const gUnit = $("gUnit").value;
 
-    const m0_in = readNumber("m0");
-    const mf_in = readNumber("mf");
+    const m0_in = num("m0");
+    const mf_in = num("mf");
     const m0Unit = $("m0Unit").value;
     const mfUnit = $("mfUnit").value;
 
-    const mdot_in = readNumber("mdot");
+    const mdot_in = num("mdot");         // optional
     const mdotUnit = $("mdotUnit").value;
 
     const notes = $("notes").value.trim();
 
+    return { isp, g0_in, gUnit, m0_in, mf_in, m0Unit, mfUnit, mdot_in, mdotUnit, notes };
+  }
+
+  function validateAndConvert(inp) {
     const problems = [];
-    if (!(isp > 0)) problems.push("Isp must be > 0.");
-    if (!(g0_in > 0)) problems.push("g₀ must be > 0.");
-    if (!(m0_in > 0)) problems.push("m₀ must be > 0.");
-    if (!(mf_in > 0)) problems.push("m_f must be > 0.");
 
-    const g0 = toSI_g0(g0_in, gUnit);
-    const m0 = toSI_mass(m0_in, m0Unit);
-    const mf = toSI_mass(mf_in, mfUnit);
+    if (!(inp.isp > 0)) problems.push("Isp must be > 0.");
+    if (!(inp.g0_in > 0)) problems.push("g₀ must be > 0.");
+    if (!(inp.m0_in > 0)) problems.push("m₀ must be > 0.");
+    if (!(inp.mf_in > 0)) problems.push("m_f must be > 0.");
 
-    // --- Echo inputs in both unit systems ---
-    const g0_si = g0;                 // m/s^2
-    const g0_eng = g0 / FT_TO_M;      // ft/s^2
+    const g0 = toSI.g0(inp.g0_in, inp.gUnit);
+    const m0 = toSI.mass(inp.m0_in, inp.m0Unit);
+    const mf = toSI.mass(inp.mf_in, inp.mfUnit);
 
-    const m0_si = m0;                 // kg
-    const m0_eng = m0 / LBM_TO_KG;    // lbm
-
-    const mf_si = mf;                 // kg
-    const mf_eng = mf / LBM_TO_KG;    // lbm
-
-    const mdot_si = Number.isFinite(mdot) ? mdot : NaN;              // kg/s
-    const mdot_eng = Number.isFinite(mdot) ? mdot / LBM_TO_KG : NaN; // lbm/s
-    
     if (!(g0 > 0)) problems.push("g₀ conversion failed.");
     if (!(m0 > 0) || !(mf > 0)) problems.push("Mass conversion failed.");
-    if (Number.isFinite(m0) && Number.isFinite(mf) && m0 <= mf) problems.push("m₀ must be greater than m_f (you need propellant mass).");
+    if (Number.isFinite(m0) && Number.isFinite(mf) && m0 <= mf) {
+      problems.push("m₀ must be greater than m_f (you need propellant mass).");
+    }
 
+    // mdot optional
     let mdot = NaN;
-    if (!Number.isNaN(mdot_in)) {
-      if (!(mdot_in > 0)) problems.push("ṁ must be > 0 if provided.");
-      mdot = toSI_mdot(mdot_in, mdotUnit);
+    if (!Number.isNaN(inp.mdot_in)) {
+      if (!(inp.mdot_in > 0)) problems.push("ṁ must be > 0 if provided.");
+      mdot = toSI.mdot(inp.mdot_in, inp.mdotUnit);
       if (!Number.isFinite(mdot) || mdot <= 0) problems.push("ṁ conversion failed (or is non-positive).");
     }
 
-    // Core computations (SI)
-    const c = isp * g0;                    // m/s
-    const MR = mf / m0; // MR = final mass / initial mass
-    const PMF = 1 - MR; // propellant mass fraction = (m0 - mf)/m0  
-    const dv = c * Math.log(massRatio);    // m/s
-    const mp = m0 - mf;                    // kg
+    return { problems, si: { isp: inp.isp, g0, m0, mf, mdot }, notes: inp.notes };
+  }
+
+  function compute(si) {
+    // Rocket equation (ideal vacuum)
+    const c = si.isp * si.g0;           // m/s
+    const massRatio = si.m0 / si.mf;    // m0/mf
+    const dv = c * Math.log(massRatio); // m/s
+    const mp = si.m0 - si.mf;           // kg
+    const pmf = mp / si.m0;             // propellant mass fraction
 
     let thrustN = NaN;
     let burnTime = NaN;
-    if (Number.isFinite(mdot) && mdot > 0) {
-      thrustN = mdot * c;      // N (ideal)
-      burnTime = mp / mdot;    // s
+    if (Number.isFinite(si.mdot) && si.mdot > 0) {
+      thrustN = si.mdot * c;            // N (ideal)
+      burnTime = mp / si.mdot;          // s
     }
 
-    // English outputs derived from SI
-    const c_ftps = c / FT_TO_M;
-    const dv_ftps = dv / FT_TO_M;
-    const mp_lbm = mp / LBM_TO_KG;
-    const thrustLbf = thrustN * N_TO_LBF;
-
-    const out = [];
-
-    out.push(`
-  <div class="small"><span class="pill">Inputs (SI & English)</span></div>
-
-  <table class="table mono">
-    <thead>
-      <tr>
-        <th>Input</th>
-        <th>SI</th>
-        <th>English</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td><b>Isp</b></td>
-        <td colspan="2">${fmt(isp, 4)} s</td>
-      </tr>
-      <tr>
-        <td><b>g₀</b></td>
-        <td>${fmt(g0_si)} m/s²</td>
-        <td>${fmt(g0_eng)} ft/s²</td>
-      </tr>
-      <tr>
-        <td><b>m₀</b></td>
-        <td>${fmt(m0_si)} kg</td>
-        <td>${fmt(m0_eng)} lbm</td>
-      </tr>
-      <tr>
-        <td><b>m_f</b></td>
-        <td>${fmt(mf_si)} kg</td>
-        <td>${fmt(mf_eng)} lbm</td>
-      </tr>
-      <tr>
-        <td><b>ṁ</b></td>
-        <td>${Number.isFinite(mdot_si) ? `${fmt(mdot_si)} kg/s` : "—"}</td>
-        <td>${Number.isFinite(mdot_eng) ? `${fmt(mdot_eng)} lbm/s` : "—"}</td>
-      </tr>
-    </tbody>
-  </table>
-`);
-
-
-    
-    if (problems.length) {
-      out.push(`<div class="warn"><b>Please fix:</b><ul>${problems.map(x => `<li>${x}</li>`).join("")}</ul></div>`);
-    }
-
-    out.push(`<div class="small"><span class="pill">Outputs shown in SI + English</span></div>`);
-
-    out.push(`
-      <table class="table mono">
-        <thead>
-          <tr>
-            <th>Metric</th>
-            <th>SI</th>
-            <th>English</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td><b>c</b> (effective exhaust velocity)</td>
-            <td>${fmt(c)} m/s</td>
-            <td>${fmt(c_ftps)} ft/s</td>
-          </tr>
-          <tr>
-            <td><b>m₀/m_f</b> (mass ratio)</td>
-            <td colspan="2">${fmt(massRatio, 6)} (unitless)</td>
-          </tr>
-          <tr>
-            <td><b>PMF</b> (m<sub>p</sub> / m₀)</td>
-            <td colspan="2">${fmt(PMF, 6)} (unitless)</td>
-          </tr>         
-          <tr>
-            <td><b>Δv</b> (ideal)</td>
-            <td>${fmt(dv)} m/s</td>
-            <td>${fmt(dv_ftps)} ft/s</td>
-          </tr>
-          <tr>
-            <td><b>m_p</b> (propellant mass)</td>
-            <td>${fmt(mp)} kg</td>
-            <td>${fmt(mp_lbm)} lbm</td>
-          </tr>
-          <tr>
-            <td><b>T</b> (ideal thrust)</td>
-            <td>${Number.isFinite(thrustN) ? `${fmt(thrustN)} N` : "—"}</td>
-            <td>${Number.isFinite(thrustLbf) ? `${fmt(thrustLbf)} lbf` : "—"}</td>
-          </tr>
-          <tr>
-            <td><b>t</b> (burn time)</td>
-            <td colspan="2">${Number.isFinite(burnTime) ? `${fmt(burnTime)} s` : "—"}</td>
-          </tr>
-        </tbody>
-      </table>
-    `);
-
-    out.push(`
-      <div class="small">
-        Earth standard g₀: 9.80665 m/s² = 32.174 ft/s². :contentReference[oaicite:2]{index=2}
-      </div>
-    `);
-
-    if (!Number.isFinite(thrustN)) {
-      out.push(`<div class="small">Provide ṁ to compute thrust and burn time.</div>`);
-    }
-
-    out.push(`<div class="small">Assumes constant Isp, constant ṁ (if provided), and ideal vacuum Δv (no drag, no gravity losses).</div>`);
-    if (notes) out.push(`<div class="small"><b>Notes:</b> ${notes.replaceAll("<","&lt;").replaceAll(">","&gt;")}</div>`);
-
-    $("output").innerHTML = out.join("");
+    return { c, massRatio, dv, mp, pmf, thrustN, burnTime };
   }
 
+  function render({ inp, si, results, problems, notes }) {
+    // Input echo (SI + English)
+    const g0_si = si.g0;
+    const g0_eng = si.g0 / FT_TO_M;
+
+    const m0_si = si.m0;
+    const m0_eng = si.m0 / LBM_TO_KG;
+
+    const mf_si = si.mf;
+    const mf_eng = si.mf / LBM_TO_KG;
+
+    const mdot_si = Number.isFinite(si.mdot) ? si.mdot : NaN;
+    const mdot_eng = Number.isFinite(si.mdot) ? si.mdot / LBM_TO_KG : NaN;
+
+    // Output in both systems
+    const c_ftps = results.c / FT_TO_M;
+    const dv_ftps = results.dv / FT_TO_M;
+    const mp_lbm = results.mp / LBM_TO_KG;
+    const thrustLbf = results.thrustN * N_TO_LBF;
+
+    const parts = [];
+
+    parts.push(pill("Inputs (SI & English)"));
+    parts.push(
+      table(
+        ["Input", "SI", "English"],
+        [
+          row([`<b>Isp</b>`, `${fmt(si.isp, 4)} s`, `${fmt(si.isp, 4)} s`]),
+          row([`<b>g₀</b>`, `${fmt(g0_si)} m/s²`, `${fmt(g0_eng)} ft/s²`]),
+          row([`<b>m₀</b>`, `${fmt(m0_si)} kg`, `${fmt(m0_eng)} lbm`]),
+          row([`<b>m_f</b>`, `${fmt(mf_si)} kg`, `${fmt(mf_eng)} lbm`]),
+          row([
+            `<b>ṁ</b>`,
+            Number.isFinite(mdot_si) ? `${fmt(mdot_si)} kg/s` : "—",
+            Number.isFinite(mdot_eng) ? `${fmt(mdot_eng)} lbm/s` : "—",
+          ]),
+        ].join("")
+      )
+    );
+
+    if (problems.length) {
+      parts.push(
+        `<div class="warn"><b>Please fix:</b><ul>${problems.map(p => `<li>${esc(p)}</li>`).join("")}</ul></div>`
+      );
+    }
+
+    parts.push(pill("Outputs shown in SI + English"));
+    parts.push(
+      table(
+        ["Metric", "SI", "English"],
+        [
+          row([`<b>c</b> (effective exhaust velocity)`, `${fmt(results.c)} m/s`, `${fmt(c_ftps)} ft/s`]),
+          row([`<b>m₀/m_f</b> (mass ratio)`, `${fmt(results.massRatio, 6)} (unitless)`, `${fmt(results.massRatio, 6)} (unitless)`]),
+          row([`<b>PMF</b> (m<sub>p</sub> / m₀)`, `${fmt(results.pmf, 6)} (unitless)`, `${fmt(results.pmf, 6)} (unitless)`]),
+          row([`<b>Δv</b> (ideal)`, `${fmt(results.dv)} m/s`, `${fmt(dv_ftps)} ft/s`]),
+          row([`<b>m_p</b> (propellant mass)`, `${fmt(results.mp)} kg`, `${fmt(mp_lbm)} lbm`]),
+          row([
+            `<b>T</b> (ideal thrust)`,
+            Number.isFinite(results.thrustN) ? `${fmt(results.thrustN)} N` : "—",
+            Number.isFinite(results.thrustN) ? `${fmt(thrustLbf)} lbf` : "—",
+          ]),
+          row([
+            `<b>t</b> (burn time)`,
+            Number.isFinite(results.burnTime) ? `${fmt(results.burnTime)} s` : "—",
+            Number.isFinite(results.burnTime) ? `${fmt(results.burnTime)} s` : "—",
+          ]),
+        ].join("")
+      )
+    );
+
+    if (!Number.isFinite(results.thrustN)) {
+      parts.push(`<div class="small">Provide ṁ to compute thrust and burn time.</div>`);
+    }
+
+    parts.push(`<div class="small">Assumes constant Isp, constant ṁ (if provided), and ideal vacuum Δv (no drag, no gravity losses).</div>`);
+    if (notes) parts.push(`<div class="small"><b>Notes:</b> ${esc(notes)}</div>`);
+
+    $("output").innerHTML = parts.join("");
+  }
+
+  function calculate() {
+    const inp = readInputs();
+    const { problems, si, notes } = validateAndConvert(inp);
+
+    // If basics are invalid, still render inputs + problems, but avoid NaN cascades
+    const safeToCompute =
+      problems.length === 0 ||
+      (si.isp > 0 && si.g0 > 0 && si.m0 > 0 && si.mf > 0 && si.m0 > si.mf);
+
+    const results = safeToCompute ? compute(si) : {
+      c: NaN, massRatio: NaN, dv: NaN, mp: NaN, pmf: NaN, thrustN: NaN, burnTime: NaN
+    };
+
+    render({ inp, si, results, problems, notes });
+  }
+
+  // ---------------------------
+  // Buttons
+  // ---------------------------
   $("calcBtn").addEventListener("click", calculate);
 
   $("resetBtn").addEventListener("click", () => {
@@ -405,8 +414,9 @@
     $("mdotUnit").value = "kgps";
 
     $("notes").value = "";
+
     history.replaceState({}, "", location.pathname);
-    syncG0PresetToValue();
+    applyG0Preset();
     $("output").innerHTML = `<div class="small">Enter values and tap <b>Calculate</b>.</div>`;
   });
 
@@ -414,15 +424,19 @@
     const url = makeShareLink();
     try {
       await navigator.clipboard.writeText(url);
-      $("output").innerHTML = `<div class="small">Copied share link:</div><div class="mono">${url}</div>` + $("output").innerHTML;
+      $("output").innerHTML =
+        `<div class="small">Copied share link:</div><div class="mono">${esc(url)}</div>` +
+        $("output").innerHTML;
     } catch {
       window.prompt("Copy this link:", url);
     }
   });
 
-  // init
-  setFromQuery();
-  syncG0PresetToValue();
+  // ---------------------------
+  // Init
+  // ---------------------------
+  loadFromQuery();
+  applyG0Preset();
   if (location.search.length > 1) calculate();
 })();
 </script>
