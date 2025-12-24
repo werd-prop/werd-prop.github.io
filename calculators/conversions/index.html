@@ -1,0 +1,285 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Unit Conversions | Rocket Propulsion Tools</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    body { margin: 0; padding: 16px; background: #f6f7f9; }
+    .card { max-width: 860px; margin: 0 auto; background: white; border-radius: 16px; padding: 16px; box-shadow: 0 6px 20px rgba(0,0,0,.08); }
+    h1 { font-size: 20px; margin: 0 0 10px; }
+    .row { display: grid; grid-template-columns: 1fr; gap: 12px; }
+    @media (min-width: 720px) { .row { grid-template-columns: 1.2fr 1fr 1fr; } }
+    label { display:block; font-size: 12px; color:#444; margin-bottom:6px; }
+    select, input { width: 100%; padding: 10px 12px; border: 1px solid #d0d6dd; border-radius: 12px; font-size: 16px; }
+    .out { margin-top: 12px; padding: 12px; border-radius: 12px; background: #f3f4f6; }
+    .mono { font-variant-numeric: tabular-nums; }
+    .small { color:#555; font-size: 12px; line-height: 1.35; }
+    .btns { display:flex; gap:10px; flex-wrap:wrap; margin-top: 10px; }
+    button { padding: 10px 14px; border-radius: 12px; border: 1px solid #c7cdd6; background: #fff; font-size: 15px; cursor:pointer; }
+    a { color:#0b57d0; text-decoration:none; }
+    a:hover { text-decoration:underline; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Unit Conversions</h1>
+    <div class="small">
+      Built from the conversion factors in your appendix table. :contentReference[oaicite:1]{index=1}
+      <br/>
+      <a href="../../">← Back to Rocket Propulsion Tools</a>
+    </div>
+
+    <div style="height:10px"></div>
+
+    <div class="row">
+      <div>
+        <label for="category">Category</label>
+        <select id="category"></select>
+      </div>
+
+      <div>
+        <label for="fromUnit">From</label>
+        <select id="fromUnit"></select>
+      </div>
+
+      <div>
+        <label for="toUnit">To</label>
+        <select id="toUnit"></select>
+      </div>
+    </div>
+
+    <div style="height:10px"></div>
+
+    <div class="row" style="grid-template-columns: 1fr;">
+      <div>
+        <label for="value">Value</label>
+        <input id="value" type="number" step="any" value="1" />
+      </div>
+    </div>
+
+    <div class="btns">
+      <button id="swapBtn">Swap</button>
+      <button id="copyBtn">Copy result</button>
+      <button id="resetBtn">Reset</button>
+    </div>
+
+    <div class="out" id="output">
+      <div class="small">Choose a category, units, and enter a value.</div>
+    </div>
+
+    <div class="small" style="margin-top:10px">
+      Notes:
+      <ul>
+        <li>Most categories use multiplicative factors (linear conversions).</li>
+        <li>Temperature conversions use formulas (°C/°F/K/°R).</li>
+        <li>Where the appendix provides “1 unit = …”, we convert by going through a base unit.</li>
+      </ul>
+    </div>
+  </div>
+
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+
+  // --- Conversion model ---
+  // For linear categories: base unit + factors to/from base.
+  // value_in_base = value * toBase[fromUnit]
+  // value_out     = value_in_base * fromBase[toUnit]
+  //
+  // Temperature is special (functions).
+  const DB = {
+    "Acceleration": {
+      base: "m/s²",
+      toBase: { "m/s²": 1, "ft/s²": 0.3048, "in/s²": 0.0254 },
+    },
+    "Area": {
+      base: "m²",
+      toBase: { "m²": 1, "ft²": 0.092903, "in²": 6.4516e-4 },
+    },
+    "Density": {
+      base: "kg/m³",
+      toBase: { "kg/m³": 1, "lbm/ft³": 16.0184, "lbm/in³": 2.76799e4 },
+    },
+    "Energy / Work / Heat": {
+      base: "J",
+      toBase: { "J": 1, "Btu": 1055.056, "kW·hr": 3.600e6, "ft·lbf": 1.355817, "cal": 4.1868, "kcal": 4186.8 },
+    },
+    "Force": {
+      base: "N",
+      toBase: { "N": 1, "lbf": 4.448221, "dyne": 1e-5, "kgf": 9.80665, "mN": 1e-3 },
+    },
+    "Length": {
+      base: "m",
+      toBase: { "m": 1, "ft": 0.3048, "in": 0.0254, "mile": 1609.344, "nmi": 1852.00, "mil": 2.54e-8, "µm": 1e-6, "au": 1.49600e11 },
+    },
+    "Mass": {
+      base: "kg",
+      toBase: { "kg": 1, "lbm": 0.4536, "g": 0.001, "slug": 14.5939 },
+    },
+    "Power": {
+      base: "W",
+      toBase: { "W": 1, "Btu/s": 0.2924, "J/s": 1, "kW": 1000, "cal/s": 4.186, "hp": 745.6998, "ft·lbf/s": 1.35581 },
+    },
+    "Pressure": {
+      base: "Pa",
+      toBase: { "Pa": 1, "bar": 1e5, "atm": 101325, "mmHg": 133.322, "MPa": 1e6, "psi": 6894.757 },
+    },
+    "Speed": {
+      base: "m/s",
+      toBase: { "m/s": 1, "ft/s": 0.3048, "in/s": 0.0254, "knot": 0.5144, "mph": 0.44704 },
+    },
+    "Specific Heat": {
+      base: "J/(g·°C)",
+      toBase: {
+        "J/(g·°C)": 1,
+        "g-cal/(g·°C)": 4.186,
+        "Btu/(lbm·°F)": 4.186
+      },
+    },
+    "Time": {
+      base: "s",
+      toBase: { "s": 1, "min": 60, "hr": 3600, "day": 86400, "year": 3.1536e7 },
+    },
+    "Viscosity (dynamic)": {
+      base: "kg/(m·s)",
+      toBase: { "kg/(m·s)": 1, "cP": 1e-3, "lbf·s/ft²": 47.88025 },
+    },
+    "Viscosity (kinematic)": {
+      base: "m²/s",
+      toBase: { "m²/s": 1, "cSt": 1e-6 },
+    },
+    "Temperature": {
+      special: true,
+      units: ["°C","°F","K","°R"],
+      convert: (value, from, to) => {
+        // Convert to K, then to target.
+        const toK = (v, u) => {
+          switch (u) {
+            case "K":  return v;
+            case "°C": return v + 273.15;
+            case "°F": return (v - 32) * (5/9) + 273.15;
+            case "°R": return v * (5/9);
+            default: return NaN;
+          }
+        };
+        const fromK = (k, u) => {
+          switch (u) {
+            case "K":  return k;
+            case "°C": return k - 273.15;
+            case "°F": return (k - 273.15) * (9/5) + 32;
+            case "°R": return k * (9/5);
+            default: return NaN;
+          }
+        };
+        return fromK(toK(value, from), to);
+      }
+    }
+  };
+
+  function unitsForCategory(cat) {
+    const obj = DB[cat];
+    if (!obj) return [];
+    if (obj.special) return obj.units.slice();
+    const toBase = obj.toBase || {};
+    return Object.keys(toBase);
+  }
+
+  function reciprocalMap(toBase) {
+    const fromBase = {};
+    for (const [u, f] of Object.entries(toBase)) {
+      fromBase[u] = 1 / f;
+    }
+    return fromBase;
+  }
+
+  function fmt(x) {
+    if (!Number.isFinite(x)) return "—";
+    const ax = Math.abs(x);
+    if (ax !== 0 && (ax >= 1e6 || ax < 1e-4)) return x.toExponential(6);
+    return x.toLocaleString(undefined, { maximumFractionDigits: 8 });
+  }
+
+  function render() {
+    const cat = $("category").value;
+    const from = $("fromUnit").value;
+    const to = $("toUnit").value;
+    const v = Number($("value").value);
+
+    if (!Number.isFinite(v)) {
+      $("output").innerHTML = `<div class="small">Enter a valid number.</div>`;
+      return;
+    }
+
+    const obj = DB[cat];
+    let out = NaN;
+
+    if (obj.special) {
+      out = obj.convert(v, from, to);
+    } else {
+      const toBase = obj.toBase;
+      const fromBase = reciprocalMap(toBase);
+
+      const vBase = v * toBase[from];
+      out = vBase * fromBase[to];
+    }
+
+    $("output").innerHTML = `
+      <div class="mono"><b>${fmt(v)}</b> ${from} = <b>${fmt(out)}</b> ${to}</div>
+      <div class="small">Category: ${cat}</div>
+    `;
+  }
+
+  function populateCategory() {
+    const cats = Object.keys(DB);
+    $("category").innerHTML = cats.map(c => `<option value="${c}">${c}</option>`).join("");
+  }
+
+  function populateUnits() {
+    const cat = $("category").value;
+    const u = unitsForCategory(cat);
+
+    $("fromUnit").innerHTML = u.map(x => `<option value="${x}">${x}</option>`).join("");
+    $("toUnit").innerHTML = u.map(x => `<option value="${x}">${x}</option>`).join("");
+
+    // sensible defaults
+    if (u.includes("m")) { $("fromUnit").value = "m"; $("toUnit").value = "ft"; }
+    if (u.includes("kg")) { $("fromUnit").value = "kg"; $("toUnit").value = "lbm"; }
+    if (u.includes("Pa")) { $("fromUnit").value = "Pa"; $("toUnit").value = "psi"; }
+    if (cat === "Temperature") { $("fromUnit").value = "°C"; $("toUnit").value = "°F"; }
+
+    render();
+  }
+
+  // events
+  $("category").addEventListener("change", populateUnits);
+  $("fromUnit").addEventListener("change", render);
+  $("toUnit").addEventListener("change", render);
+  $("value").addEventListener("input", render);
+
+  $("swapBtn").addEventListener("click", () => {
+    const a = $("fromUnit").value;
+    $("fromUnit").value = $("toUnit").value;
+    $("toUnit").value = a;
+    render();
+  });
+
+  $("copyBtn").addEventListener("click", async () => {
+    const text = $("output").innerText.replace(/\s+/g, " ").trim();
+    try { await navigator.clipboard.writeText(text); } catch {}
+  });
+
+  $("resetBtn").addEventListener("click", () => {
+    $("category").selectedIndex = 0;
+    $("value").value = 1;
+    populateUnits();
+  });
+
+  // init
+  populateCategory();
+  populateUnits();
+})();
+</script>
+</body>
+</html>
