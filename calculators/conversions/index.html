@@ -20,14 +20,13 @@
     button { padding: 10px 14px; border-radius: 12px; border: 1px solid #c7cdd6; background: #fff; font-size: 15px; cursor:pointer; }
     a { color:#0b57d0; text-decoration:none; }
     a:hover { text-decoration:underline; }
+    .hidden { display:none; }
   </style>
 </head>
 <body>
   <div class="card">
     <h1>Unit Conversions</h1>
     <div class="small">
-      Built from the conversion factors in your appendix table. :contentReference[oaicite:1]{index=1}
-      <br/>
       <a href="../../">← Back to Rocket Propulsion Tools</a>
     </div>
 
@@ -59,6 +58,15 @@
       </div>
     </div>
 
+    <!-- Only used for Isp <-> exhaust velocity conversions -->
+    <div id="g0Wrap" class="row hidden" style="grid-template-columns: 1fr;">
+      <div>
+        <label for="g0">Standard gravity g₀ (used for Isp ↔ c)</label>
+        <input id="g0" type="number" step="any" value="9.80665" />
+        <div class="small">c = Isp · g₀</div>
+      </div>
+    </div>
+
     <div class="btns">
       <button id="swapBtn">Swap</button>
       <button id="copyBtn">Copy result</button>
@@ -72,9 +80,10 @@
     <div class="small" style="margin-top:10px">
       Notes:
       <ul>
-        <li>Most categories use multiplicative factors (linear conversions).</li>
-        <li>Temperature conversions use formulas (°C/°F/K/°R).</li>
-        <li>Where the appendix provides “1 unit = …”, we convert by going through a base unit.</li>
+        <li>Most categories are linear (multiplicative) conversions via a base unit.</li>
+        <li>Temperature uses formulas (°C/°F/K/°R).</li>
+        <li>Temperature gradient converts temperature *differences* per length (Δ°F ≠ Δ°C).</li>
+        <li>Isp ↔ c uses c = Isp·g₀.</li>
       </ul>
     </div>
   </div>
@@ -83,78 +92,93 @@
 (() => {
   const $ = (id) => document.getElementById(id);
 
+  const fmt = (x) => {
+    if (!Number.isFinite(x)) return "—";
+    const ax = Math.abs(x);
+    if (ax !== 0 && (ax >= 1e6 || ax < 1e-4)) return x.toExponential(6);
+    return x.toLocaleString(undefined, { maximumFractionDigits: 10 });
+  };
+
   // --- Conversion model ---
-  // For linear categories: base unit + factors to/from base.
+  // Linear categories:
   // value_in_base = value * toBase[fromUnit]
-  // value_out     = value_in_base * fromBase[toUnit]
+  // out          = value_in_base * (1/toBase[toUnit])
   //
-  // Temperature is special (functions).
+  // Special categories implement convert(value, from, to).
   const DB = {
-    "Acceleration": {
-      base: "m/s²",
-      toBase: { "m/s²": 1, "ft/s²": 0.3048, "in/s²": 0.0254 },
-    },
-    "Area": {
-      base: "m²",
-      toBase: { "m²": 1, "ft²": 0.092903, "in²": 6.4516e-4 },
-    },
-    "Density": {
-      base: "kg/m³",
-      toBase: { "kg/m³": 1, "lbm/ft³": 16.0184, "lbm/in³": 2.76799e4 },
-    },
-    "Energy / Work / Heat": {
-      base: "J",
-      toBase: { "J": 1, "Btu": 1055.056, "kW·hr": 3.600e6, "ft·lbf": 1.355817, "cal": 4.1868, "kcal": 4186.8 },
-    },
-    "Force": {
-      base: "N",
-      toBase: { "N": 1, "lbf": 4.448221, "dyne": 1e-5, "kgf": 9.80665, "mN": 1e-3 },
-    },
-    "Length": {
-      base: "m",
-      toBase: { "m": 1, "ft": 0.3048, "in": 0.0254, "mile": 1609.344, "nmi": 1852.00, "mil": 2.54e-8, "µm": 1e-6, "au": 1.49600e11 },
-    },
-    "Mass": {
-      base: "kg",
-      toBase: { "kg": 1, "lbm": 0.4536, "g": 0.001, "slug": 14.5939 },
-    },
-    "Power": {
-      base: "W",
-      toBase: { "W": 1, "Btu/s": 0.2924, "J/s": 1, "kW": 1000, "cal/s": 4.186, "hp": 745.6998, "ft·lbf/s": 1.35581 },
-    },
-    "Pressure": {
-      base: "Pa",
-      toBase: { "Pa": 1, "bar": 1e5, "atm": 101325, "mmHg": 133.322, "MPa": 1e6, "psi": 6894.757 },
-    },
-    "Speed": {
-      base: "m/s",
-      toBase: { "m/s": 1, "ft/s": 0.3048, "in/s": 0.0254, "knot": 0.5144, "mph": 0.44704 },
-    },
-    "Specific Heat": {
-      base: "J/(g·°C)",
+    "Acceleration": { base: "m/s²", toBase: { "m/s²": 1, "ft/s²": 0.3048, "in/s²": 0.0254 } },
+    "Area": { base: "m²", toBase: { "m²": 1, "ft²": 0.092903, "in²": 6.4516e-4 } },
+    "Density": { base: "kg/m³", toBase: { "kg/m³": 1, "lbm/ft³": 16.0184, "lbm/in³": 2.76799e4 } },
+    "Energy / Work / Heat": { base: "J", toBase: { "J": 1, "Btu": 1055.056, "kW·hr": 3.600e6, "ft·lbf": 1.355817, "cal": 4.1868, "kcal": 4186.8 } },
+    "Force": { base: "N", toBase: { "N": 1, "lbf": 4.448221, "dyne": 1e-5, "kgf": 9.80665, "mN": 1e-3 } },
+    "Length": { base: "m", toBase: { "m": 1, "ft": 0.3048, "in": 0.0254, "mile": 1609.344, "nmi": 1852.00, "mil": 2.54e-8, "µm": 1e-6, "au": 1.49600e11 } },
+    "Mass": { base: "kg", toBase: { "kg": 1, "lbm": 0.4536, "g": 0.001, "slug": 14.5939 } },
+    "Power": { base: "W", toBase: { "W": 1, "Btu/s": 0.2924, "J/s": 1, "kW": 1000, "cal/s": 4.186, "hp": 745.6998, "ft·lbf/s": 1.35581 } },
+    "Pressure": { base: "Pa", toBase: { "Pa": 1, "bar": 1e5, "atm": 101325, "mmHg": 133.322, "MPa": 1e6, "psi": 6894.757 } },
+    "Speed": { base: "m/s", toBase: { "m/s": 1, "ft/s": 0.3048, "in/s": 0.0254, "knot": 0.5144, "mph": 0.44704 } },
+    "Specific Heat": { base: "J/(g·°C)", toBase: { "J/(g·°C)": 1, "g-cal/(g·°C)": 4.186, "Btu/(lbm·°F)": 4.186 } },
+    "Time": { base: "s", toBase: { "s": 1, "min": 60, "hr": 3600, "day": 86400, "year": 3.1536e7 } },
+    "Viscosity (dynamic)": { base: "kg/(m·s)", toBase: { "kg/(m·s)": 1, "cP": 1e-3, "lbf·s/ft²": 47.88025 } },
+    "Viscosity (kinematic)": { base: "m²/s", toBase: { "m²/s": 1, "cSt": 1e-6 } },
+
+    // --- Added rocket-friendly categories ---
+    "Mass flow": {
+      base: "kg/s",
       toBase: {
-        "J/(g·°C)": 1,
-        "g-cal/(g·°C)": 4.186,
-        "Btu/(lbm·°F)": 4.186
-      },
+        "kg/s": 1,
+        "kg/min": 1/60,
+        "lbm/s": 0.45359237,
+        "lbm/min": 0.45359237/60
+      }
     },
-    "Time": {
-      base: "s",
-      toBase: { "s": 1, "min": 60, "hr": 3600, "day": 86400, "year": 3.1536e7 },
+
+    "Impulse": {
+      base: "N·s",
+      toBase: {
+        "N·s": 1,
+        "lbf·s": 4.4482216152605
+      }
     },
-    "Viscosity (dynamic)": {
-      base: "kg/(m·s)",
-      toBase: { "kg/(m·s)": 1, "cP": 1e-3, "lbf·s/ft²": 47.88025 },
+
+    "Temperature gradient": {
+      special: true,
+      units: ["K/m","°C/m","K/km","°C/km","°F/ft","°F/m"],
+      convert: (value, from, to) => {
+        // Convert to base of K/m, then to target.
+        // Key facts:
+        //  - ΔK = Δ°C
+        //  - Δ°F = (9/5)Δ°C  => Δ°C = (5/9)Δ°F
+        //  - lengths: ft = 0.3048 m, km = 1000 m
+        const toKm = (v, u) => {
+          switch (u) {
+            case "K/m":
+            case "°C/m": return v; // ΔK/m
+            case "K/km":
+            case "°C/km": return v / 1000.0; // per km -> per m
+            case "°F/m": return (v * (5/9)); // Δ°F/m -> Δ°C/m
+            case "°F/ft": return (v * (5/9)) / 0.3048; // per ft -> per m
+            default: return NaN;
+          }
+        };
+        const fromKm = (vKm, u) => {
+          switch (u) {
+            case "K/m":
+            case "°C/m": return vKm;
+            case "K/km":
+            case "°C/km": return vKm * 1000.0;
+            case "°F/m": return vKm * (9/5);
+            case "°F/ft": return (vKm * (9/5)) * 0.3048; // per m -> per ft
+            default: return NaN;
+          }
+        };
+        return fromKm(toKm(value, from), to);
+      }
     },
-    "Viscosity (kinematic)": {
-      base: "m²/s",
-      toBase: { "m²/s": 1, "cSt": 1e-6 },
-    },
+
     "Temperature": {
       special: true,
       units: ["°C","°F","K","°R"],
       convert: (value, from, to) => {
-        // Convert to K, then to target.
         const toK = (v, u) => {
           switch (u) {
             case "K":  return v;
@@ -175,6 +199,29 @@
         };
         return fromK(toK(value, from), to);
       }
+    },
+
+    "Isp ↔ exhaust velocity (c)": {
+      special: true,
+      units: ["Isp (s)","c (m/s)","c (ft/s)"],
+      convert: (value, from, to, g0) => {
+        // Use g0 in m/s^2
+        const g = Number(g0);
+        if (!Number.isFinite(g) || g <= 0) return NaN;
+
+        // Convert input to c in m/s
+        let c_mps;
+        if (from === "Isp (s)") c_mps = value * g;
+        else if (from === "c (m/s)") c_mps = value;
+        else if (from === "c (ft/s)") c_mps = value * 0.3048;
+        else return NaN;
+
+        // Convert c to requested output
+        if (to === "Isp (s)") return c_mps / g;
+        if (to === "c (m/s)") return c_mps;
+        if (to === "c (ft/s)") return c_mps / 0.3048;
+        return NaN;
+      }
     }
   };
 
@@ -182,23 +229,20 @@
     const obj = DB[cat];
     if (!obj) return [];
     if (obj.special) return obj.units.slice();
-    const toBase = obj.toBase || {};
-    return Object.keys(toBase);
+    return Object.keys(obj.toBase || {});
   }
 
-  function reciprocalMap(toBase) {
-    const fromBase = {};
-    for (const [u, f] of Object.entries(toBase)) {
-      fromBase[u] = 1 / f;
-    }
-    return fromBase;
+  function showG0(cat) {
+    const need = (cat === "Isp ↔ exhaust velocity (c)");
+    $("g0Wrap").classList.toggle("hidden", !need);
   }
 
-  function fmt(x) {
-    if (!Number.isFinite(x)) return "—";
-    const ax = Math.abs(x);
-    if (ax !== 0 && (ax >= 1e6 || ax < 1e-4)) return x.toExponential(6);
-    return x.toLocaleString(undefined, { maximumFractionDigits: 8 });
+  function linearConvert(value, toBase, fromUnit, toUnit) {
+    const a = toBase[fromUnit];
+    const b = toBase[toUnit];
+    if (!Number.isFinite(a) || !Number.isFinite(b) || b === 0) return NaN;
+    // value * (toBase[from]) gives base; divide by toBase[to] to get target
+    return value * (a / b);
   }
 
   function render() {
@@ -208,78 +252,4 @@
     const v = Number($("value").value);
 
     if (!Number.isFinite(v)) {
-      $("output").innerHTML = `<div class="small">Enter a valid number.</div>`;
-      return;
-    }
-
-    const obj = DB[cat];
-    let out = NaN;
-
-    if (obj.special) {
-      out = obj.convert(v, from, to);
-    } else {
-      const toBase = obj.toBase;
-      const fromBase = reciprocalMap(toBase);
-
-      const vBase = v * toBase[from];
-      out = vBase * fromBase[to];
-    }
-
-    $("output").innerHTML = `
-      <div class="mono"><b>${fmt(v)}</b> ${from} = <b>${fmt(out)}</b> ${to}</div>
-      <div class="small">Category: ${cat}</div>
-    `;
-  }
-
-  function populateCategory() {
-    const cats = Object.keys(DB);
-    $("category").innerHTML = cats.map(c => `<option value="${c}">${c}</option>`).join("");
-  }
-
-  function populateUnits() {
-    const cat = $("category").value;
-    const u = unitsForCategory(cat);
-
-    $("fromUnit").innerHTML = u.map(x => `<option value="${x}">${x}</option>`).join("");
-    $("toUnit").innerHTML = u.map(x => `<option value="${x}">${x}</option>`).join("");
-
-    // sensible defaults
-    if (u.includes("m")) { $("fromUnit").value = "m"; $("toUnit").value = "ft"; }
-    if (u.includes("kg")) { $("fromUnit").value = "kg"; $("toUnit").value = "lbm"; }
-    if (u.includes("Pa")) { $("fromUnit").value = "Pa"; $("toUnit").value = "psi"; }
-    if (cat === "Temperature") { $("fromUnit").value = "°C"; $("toUnit").value = "°F"; }
-
-    render();
-  }
-
-  // events
-  $("category").addEventListener("change", populateUnits);
-  $("fromUnit").addEventListener("change", render);
-  $("toUnit").addEventListener("change", render);
-  $("value").addEventListener("input", render);
-
-  $("swapBtn").addEventListener("click", () => {
-    const a = $("fromUnit").value;
-    $("fromUnit").value = $("toUnit").value;
-    $("toUnit").value = a;
-    render();
-  });
-
-  $("copyBtn").addEventListener("click", async () => {
-    const text = $("output").innerText.replace(/\s+/g, " ").trim();
-    try { await navigator.clipboard.writeText(text); } catch {}
-  });
-
-  $("resetBtn").addEventListener("click", () => {
-    $("category").selectedIndex = 0;
-    $("value").value = 1;
-    populateUnits();
-  });
-
-  // init
-  populateCategory();
-  populateUnits();
-})();
-</script>
-</body>
-</html>
+      $("output").innerHTML = `<div class="small">Enter a valid nu
